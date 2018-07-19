@@ -9,6 +9,7 @@ function PipePair:init(y)
         ['lower'] = Pipe('bottom', y + math.max(GAP_HEIGHT,math.min(150,math.random(40))))
     }
     self.remove = false
+    self.scored = false
 end
 
 function PipePair:update(dt)

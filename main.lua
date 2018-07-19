@@ -56,48 +56,59 @@ local GROUND_SCROLL_SPEED = 120
 -- point at which we should loop our background back to X 0
 local BACKGROUND_LOOPING_POINT = 413
 
--- our bird sprite
-local bird = Bird()
-
--- our table of spawning Pipes
-local pipePairs = {}
-
-local lastY = math.random(80) + 20
-
--- our timer for spawning pipes
-local spawnTimer = 0
-
-local scrolling = true
-
-function reset()
-    spawnTimer = 0
-    lastY = math.random(80) + 20
-    groundScroll = 0
-    backgroundScroll = 0
-    scrolling = true
-    bird:reset()
-    for k, pipePair in pairs(pipePairs) do
-        pipePair:clear()
-        table.remove(pipePairs, k)
-    end
-    pipePairs = {}
-    love.keyboard.keysPressed = {}
-end
+require 'StateMachine'
+require 'states/BaseState'
+require 'states/ScoreState'
+require 'states/PlayState'
+require 'states/TitleScreenState'
+require 'states/CountDownState'
 
 function love.load()
     -- initialize our nearest-neighbor filter
     love.graphics.setDefaultFilter('nearest', 'nearest')
     
+    
     -- app window title
     love.window.setTitle('Fifty Bird')
-    
+
+    -- initialize our nice-looking retro text fonts
+    smallFont = love.graphics.newFont('font.ttf', 8)
+    mediumFont = love.graphics.newFont('flappy.ttf', 14)
+    flappyFont = love.graphics.newFont('flappy.ttf', 28)
+    hugeFont = love.graphics.newFont('flappy.ttf', 56)
+    love.graphics.setFont(flappyFont)
+
+    -- initialize our table of sounds
+    sounds = {
+        ['jump'] = love.audio.newSource('jump.wav', 'static'),
+        ['explosion'] = love.audio.newSource('explosion.wav', 'static'),
+        ['hurt'] = love.audio.newSource('hurt.wav', 'static'),
+        ['score'] = love.audio.newSource('score.wav', 'static'),
+
+        -- https://freesound.org/people/xsgianni/sounds/388079/
+        ['music'] = love.audio.newSource('marios_way.mp3', 'static')
+    }
+
+    -- kick off music
+    sounds['music']:setLooping(true)
+    sounds['music']:play()
+
     -- initialize our virtual resolution
     push:setupScreen(VIRTUAL_WIDTH, VIRTUAL_HEIGHT, WINDOW_WIDTH, WINDOW_HEIGHT, {
         vsync = true,
         fullscreen = false,
         resizable = true
     })
-    
+
+    stateMachine = StateMachine {
+        ['play'] = function() return PlayState() end,
+        ['score'] = function() return ScoreState() end,
+        ['count'] = function() return CountDownState() end,
+        ['title'] = function() return TitleScreenState() end
+    }
+
+    stateMachine:change('title')
+
     -- initialize input table
     love.keyboard.keysPressed = {}
 end
@@ -109,11 +120,8 @@ end
 function love.keypressed(key)
     -- add to our table of keys pressed this frame
     love.keyboard.keysPressed[key] = true
-    
     if key == 'escape' then
         love.event.quit()
-    elseif (key == 'return') and scrolling == false then
-        reset()
     end
 end
 
@@ -130,51 +138,15 @@ function love.keyboard.wasPressed(key)
 end
 
 function love.update(dt)
-    if scrolling then
-            -- scroll background by preset speed * dt, looping back to 0 after the looping point
-        backgroundScroll = (backgroundScroll + BACKGROUND_SCROLL_SPEED * dt) 
-        % BACKGROUND_LOOPING_POINT
+    -- scroll background by preset speed * dt, looping back to 0 after the looping point
+    backgroundScroll = (backgroundScroll + BACKGROUND_SCROLL_SPEED * dt) 
+    % BACKGROUND_LOOPING_POINT
 
-        -- scroll ground by preset speed * dt, looping back to 0 after the screen width passes
-        groundScroll = (groundScroll + GROUND_SCROLL_SPEED * dt) 
-            % VIRTUAL_WIDTH
-
-        spawnTimer = spawnTimer + dt
-
-        -- spawn a new Pipe if the timer is past 2 seconds
-        if spawnTimer > 2 then
-            local y = math.max(
-                10, 
-                math.min(
-                    lastY + math.random(-30, 30), 
-                    VIRTUAL_HEIGHT - 90
-                )
-            )
-            lastY = y
-            table.insert(pipePairs, PipePair(y))
-            spawnTimer = 0
-        end
-
-        -- update the bird for input and gravity
-        bird:update(dt)
-
-        -- for every pipe in the scene...
-        for k, pipePair in pairs(pipePairs) do
-            pipePair:update(dt)
-
-            for n, pipe in pairs(pipePair.pipes) do
-                if bird:collides(pipe) then
-                    scrolling = false
-                end
-            end
-
-            -- if pipePair is no longer visible past left edge, remove it from scene
-            if pipePair.remove then
-                table.remove(pipePairs, k)
-            end
-        end
-
-    end
+    -- scroll ground by preset speed * dt, looping back to 0 after the screen width passes
+    groundScroll = (groundScroll + GROUND_SCROLL_SPEED * dt) 
+        % VIRTUAL_WIDTH
+   
+    stateMachine:update(dt)
 
     -- reset input table
     love.keyboard.keysPressed = {}
@@ -186,17 +158,13 @@ function love.draw()
     -- draw the background at the negative looping point
     love.graphics.draw(background, -backgroundScroll, 0)
 
-    -- render all the pipes in our scene
-    for k, pipePair in pairs(pipePairs) do
-        pipePair:render()
-    end
+    stateMachine:render()
 
     -- draw the ground on top of the background, toward the bottom of the screen,
     -- at its negative looping point
     love.graphics.draw(ground, -groundScroll, VIRTUAL_HEIGHT - 16)
 
     -- render our bird to the screen using its own render logic
-    bird:render()
     
     push:finish()
 end
